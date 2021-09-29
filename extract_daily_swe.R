@@ -1,6 +1,8 @@
 library(terra)
 library(caTools)
 library(R.utils)
+library(BiocManager) 
+library(rhdf5)
 
 # jack tarricone
 # september 29, 2021
@@ -25,43 +27,90 @@ library(R.utils)
 # path to all of the years, and list the years
 masked <-file.path("/Volumes","G02158","masked") 
 year_list <-list.files(masked)
-year_path <-file.path(masked, year_list[1]) # create path to year
+
+year_list <-as.list(year_list[1])
+
+extract_daily_swe <-function(list_of_years){
+  
+year_path <-file.path(masked, year_list) # create path to year
 
 # list all all monthly folder in each year
 month_list <-list.files(year_path)
-month_path <-file.path(year_path, month_list[2])
-
-for (i in 1:length(month_list)) {
+month_path <-file.path(year_path, month_list[2]) # just for october test
+}
+for (j in 1:length(month_list)) {
   
   day_path <-file.path(month_path)
   day_list <-list.files(day_path, full.names = TRUE)
   
-    for (ii in 1:length(days_list)){
-      
-      saving_location <-file.path("/Users","jacktarricone","nres_proj_data","swe_data","reg_years",year_list[1])
-      setwd(saving_location)
-      untar(day_list[1], exdir = saving_location)
-      
-      untarred_swe_files <-list.files(saving_location, pattern = "*us_ssmv11034tS*", full.names =  TRUE) # list the newly untarred files 7 bin data, 7 meta data
-      lapply(untarred_swe_files, gunzip)
-      to_be_deleted <-list.files(saving_location, pattern = "*.gz", full.names =  TRUE)
-      file.remove(to_be_deleted)
-    }
+  # set files location by year (i think this should work using lapply for big function)
+  saving_location <-file.path("/Users","jacktarricone","nres_proj_data","swe_data","reg_years",year_list)
+  setwd(saving_location) # set as working direction
 }
+  
+################################################################################################
+# this forloop almost works for pulling out daily values but for some reason is skipping days
+##############################    check on this ################################################
+#######################################################################################
+  
+  for (i in 1:length(day_list)){
+    
+    # set files location by year (i think this should work using lapply for big function)
+    saving_location <-file.path("/Users","jacktarricone","nres_proj_data","swe_data","reg_years", year_list)
+    setwd(saving_location) # set as working direction
+    
+    untar(day_list[i], exdir = saving_location) # untar using i indexing here
+    
+    # list just the two SWE files (.dat and .txt) using swe indentifier 1034
+    untarred_swe_files <-list.files(saving_location, pattern = "us_ssmv11034tS.*\\.gz$", full.names =  TRUE) 
+    
+    lapply(untarred_swe_files, gunzip) # unzip swe files list
+    to_be_deleted <-list.files(saving_location, pattern = "*.gz|*.txt", full.names =  TRUE) # list all .gz zipped files
+    file.remove(to_be_deleted) # delete them bc don't need
+    
+    # extract the name of the single day of SWE for header creation
+    last_day <-as.integer(length(list.files(saving_location)))
+    names_list <-list.files(saving_location, pattern = "*.dat")
+    swe_name_raw <-names_list[length(names_list)]
+    swe_name <- substr(names_list[length(names_list)],1,nchar(swe_name_raw)-4)
+    
+    # create envi header to reference binary SWE files
+    header <-c("ENVI",
+               "samples = 6935",
+               "lines = 3351",
+               "bands = 1",
+               "header offset = 0",
+               "file type = ENVI Standard",
+               "data type = 2",
+               "interleave = bsq",
+               "byte order = 1")
+    writeLines(header, paste0(swe_name,".hdr"))
+  }
 
 
-# read file in 
-snodas_envi <-read.ENVI(test, test_hdr) 
+
+
+extract_daily_swe(year_list)
+
+
+
+
+
+
+#### test to see our automatic header creation works
+read_test <-list.files(saving_location, full.names = TRUE)
+
+snodas_envi <-read.ENVI(read_test[1], read_test[2]) 
 dim(snodas_envi) # check dims
 snodas <-terra::rast(snodas_envi) # convert to rasters
-
-# setting proj and cleaning data
 values(snodas)[values(snodas) == -9999] = NA # change no data value to NA
 crs(snodas) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
 ext(snodas) <-c(-124.7337, -66.9421, 24.9504, 52.8754) # seet extent
 plot(snodas) # test plot
-hist(snodas)
-writeRaster(snodas, "/Users/jacktarricone/nres_proj_data/snodas_test.tiff", overwrite=TRUE)
+writeRaster(snodas, "/Users/jacktarricone/nres_proj_data/snodas_test_oct1.tiff", overwrite=TRUE)
+
+
+
 
 
 ###### test swe
