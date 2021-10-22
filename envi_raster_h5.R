@@ -30,33 +30,104 @@ system.time(for (i in 1:length(dat_files)){
 
 # transform list of matrixes into large array aka datacube
 system.time(swe_array <-array(as.numeric(unlist(mat_list)), dim=c(3351, 6935, length(mat_list))))
+rm(mat_list)
+system.time(swe_array[swe_array == -9999] <- NA) # change no data value to NA
+system.time(swe_array <-swe_array/1000) # divide to get units meters
 
-setwd(file.path("/Volumes","jack_t","nres_project","reg_years","annual_h5")) # setwd , change for function
+## crop to western us
+# 3351, 2488, 1 crops it to -104 lon or just east of denver
+swe_array <-swe_array[,1:2488,]
 
-h5createFile("swe_daily_2004.h5")
-h5createGroup("swe_daily_2004.h5", "swe")
+# info for converting to rasters
+
+# ext(swe_stack) <-c(-124.7337, -104.0004, 24.9504, 52.8754)
+# crs(swe_stack) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
+
+############################
+##### save to h5 file ######
+############################
+
+# setwd , change for function
+setwd(file.path("/Volumes","jack_t","nres_project","reg_years","annual_h5")) 
+
+h5createFile("swe_daily_2004.h5") # create empty .h5 file
+
+# create data set with proper info, set "chunk"
+# level is compression amount 0 - 9, 9 is most compressed but slowest to read in
+h5createDataset(file = "swe_daily_2004.h5", dataset = "swe",
+                dims = c(3351, 2488, length(dat_files)), level = 5, chunk = c(3351, 2488, length(dat_files)),
+                storage.mode = "double")
 
 # view the structure of the h5 we've created
 h5ls("swe_daily_2004.h5")
 
-attr(swe_array, "swe") <- "meters"
-
-sessionInfo()
 h5write(swe_array, "swe_daily_2004.h5","swe")
 
 
-# rast_list <-lapply(mat_list, rast) # convert raw envi matrix to rasters
-# rm(mat_list) # remove mat list
-# swe_stack <-rast(rast_list) # stack rasters?
-# rm(rast_list) # remove rast list
+#########################################
+##### test read back in the new h5 ######
+#########################################
 
-dim(swe_stack) # check dims
-values(swe_stack)[values(swe_stack) == -9999] = NA # change no data value to NA
+# set path and file name for hdf5 SWE file
+hdf_file <-list.files(full.names = TRUE)
+h5ls(hdf_file[2]) #list contains 3 groups. lat, long, and SWE !
+h5readAttributes(hdf_file[2], name = "swe") 
+
+system.time(snodas <- h5read(hdf_file[2], "/swe"))#read in SWE group
+class(snodas) #inspect 
+dim(snodas) #dimensions
+
+max_swe <-as.matrix(apply(snodas, c(1,2), max))
+max_swe <-rast(max_swe)
+ext(max_swe) <-c(-124.7337, -104.0004, 24.9504, 52.8754)
+crs(max_swe) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
+plot(max_swe)
+writeRaster(max_swe, "/Users/jacktarricone/nres_proj_data/max_swe_2004.tiff")
+
+
+
+
+
+
+###### old raster code
+
+ext(swe_stack) <-c(-124.7337, -104.0004, 24.9504, 52.8754)
+crs(swe_stack) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
+plot(swe_stack)
+
+ext(swe_stack) <-c(-124.7337, -66.9421, 24.9504, 52.8754) # set extent
+
+# crop at -104 lon, a bit east of denver
+crop_ext <-c(-124.7337, -104.0004, 24.9504, 52.8754) # set extent
+swe_crop <- crop(swe_stack, crop_ext)	
+plot(swe_crop[[80]])
+writeRaster(swe_crop[[92]], "/Users/jacktarricone/nres_proj_data/crop_test.tiff")
+swe_crop_array <-as.array(swe_crop)
+
+
+# read in 1 days SWE data which is an array, or stack of matrixes
+system.time(swe_03 <- h5read(hdf_file, "/swe")) #read in SWE group
+class(swe_03) #inspect 
+dim(swe_03) #dimensions
+test <-rast(swe_03[,,92])
+crs(test) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
+ext(test) <-c(-124.7337, -104.0004, 24.9504, 52.8754) # set extent
+plot(test)
+
+writeRaster(test, "/Users/jacktarricone/nres_proj_data/h5_test.tiff")
+
+
+
+
+
+stack <-rast(swe_array[,,92])
+dim(stack) # check dims
+# values(stack)[values(stack) == -9999] = NA # change no data value to NA
 crs(stack) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
 ext(stack) <-c(-124.7337, -66.9421, 24.9504, 52.8754) # seet extent
-plot(stack[[90]]) # test plot
+plot(stack) # test plot
 
-writeRaster(stack, "/Users/jacktarricone/nres_proj_data/swe_stack_2003.tiff")
+writeRaster(stack, "/Users/jacktarricone/nres_proj_data/test_swe.tiff")
 
 test <-rast("/Users/jacktarricone/nres_proj_data/swe_stack_2003.tiff")
 plot(test[[30:40]])
