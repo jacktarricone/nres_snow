@@ -1,3 +1,3 @@
 # nres_snow
 
-scripts for nres class project by mari, cara, and weylin
+scripts for nres class project by jack, mari, cara, and weylin
