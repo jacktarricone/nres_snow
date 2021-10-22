@@ -29,8 +29,6 @@ library(parallel)
 masked <-file.path("/Volumes/G02158/masked") 
 years_path_full <-list.files(masked[[1]], full.names = TRUE) # create path to each year
 years <-list.files(masked) # just a years list for saving file path purposes
-years_path_full <-years_path_full[-1]
-years <-years[-1]
 
 extract_daily_swe <-function(years_path_full){
 
@@ -91,20 +89,30 @@ system.time(lapply(years_path_full, extract_daily_swe))
 
 
 
-
-
-
 #### test to see our automatic header creation works
-read_test <-list.files(saving_location, full.names = TRUE)
-snodas_envi <-read.ENVI(read_test[60], read_test[61]) 
-dim(snodas_envi) # check dims
-snodas <-terra::rast(snodas_envi) # convert to rasters
-values(snodas)[values(snodas) == -9999] = NA # change no data value to NA
-crs(snodas) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
-ext(snodas) <-c(-124.7337, -66.9421, 24.9504, 52.8754) # seet extent
-plot(snodas) # test plot
-writeRaster(snodas, "/Users/jacktarricone/nres_proj_data/snodas_test_oct1.tiff", overwrite=TRUE)
+path <-file.path("/Volumes","jack_t","nres_project","reg_years", "2003")
+dat_files <-list.files(path, pattern = ".dat", full.names = TRUE) # list bin files
+hdr_files <-list.files(path, pattern = ".hdr", full.names = TRUE)
 
+mat_list <- vector(mode = "list", length = length(dat_files)) # create empty list to loop into
+for (i in 1:length(dat_files)){
+  mat_list[[i]] <-read.ENVI(dat_files[i], hdr_files[i]) 
+}
+
+rast_list <-lapply(mat_list, rast) # convert raw envi matrix to rasters
+stack <-rast(rast_list) # stack rasters?
+rm(mat_list, rast_list) # remove duplicate data
+
+dim(stack) # check dims
+values(stack)[values(stack) == -9999] = NA # change no data value to NA
+crs(stack) <-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # set proj
+ext(stack) <-c(-124.7337, -66.9421, 24.9504, 52.8754) # seet extent
+plot(stack[[90]]) # test plot
+
+writeRaster(stack, "/Users/jacktarricone/nres_proj_data/swe_stack_2003.tiff")
+
+test <-rast("/Users/jacktarricone/nres_proj_data/swe_stack_2003.tiff")
+plot(test[[30:40]])
 
 
 
