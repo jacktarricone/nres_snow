@@ -3,6 +3,7 @@ library(caTools)
 library(R.utils)
 library(BiocManager) 
 library(rhdf5)
+library(parallel)
 
 # jack tarricone
 # september 29, 2021
@@ -25,57 +26,44 @@ library(rhdf5)
 # 1050: Snow pack sublimation
 
 # path to all of the years, and list the years
-masked <-file.path("/Volumes","G02158","masked") 
-year_list <-list.files(masked)
+masked <-file.path("/Volumes/G02158/masked") 
+years_path_full <-list.files(masked[[1]], full.names = TRUE) # create path to each year
+years <-list.files(masked) # just a years list for saving file path purposes
+years_path_full <-years_path_full[-1]
+years <-years[-1]
 
-year_list <-as.list(year_list[1])
+extract_daily_swe <-function(years_path_full){
 
-extract_daily_swe <-function(list_of_years){
+  # list all all monthly folder path in each year
+    months_path <-list.files(years_path_full, full.names = TRUE)
   
-year_path <-file.path(masked, year_list) # create path to year
-
-# list all all monthly folder in each year
-month_list <-list.files(year_path)
-month_path <-file.path(year_path, month_list[2]) # just for october test
-}
-for (j in 1:length(month_list)) {
-  
-  day_path <-file.path(month_path)
-  day_list <-list.files(day_path, full.names = TRUE)
+  # list of all days
+    days_list <-list.files(months_path, full.names = TRUE)
   
   # set files location by year (i think this should work using lapply for big function)
-  saving_location <-file.path("/Users","jacktarricone","nres_proj_data","swe_data","reg_years",year_list)
-  setwd(saving_location) # set as working direction
-}
-  
-################################################################################################
-# this forloop almost works for pulling out daily values but for some reason is skipping days
-##############################    check on this ################################################
-#######################################################################################
-  
-  for (i in 1:length(day_list)){
-    
-    # set files location by year (i think this should work using lapply for big function)
-    saving_location <-file.path("/Users","jacktarricone","nres_proj_data","swe_data","reg_years", year_list)
+    saving_location <-file.path("/Volumes","jack_t","nres_project","reg_years", years)
     setwd(saving_location) # set as working direction
+  
+  # now we can extract the files using the untar function
+    system.time(lapply(days_list, untar, exdir = saving_location)) # untar the list
     
-    untar(day_list[i], exdir = saving_location) # untar using i indexing here
-    
-    # list just the two SWE files (.dat and .txt) using swe indentifier 1034
-    untarred_swe_files <-list.files(saving_location, pattern = "us_ssmv11034tS.*\\.gz$", full.names =  TRUE) 
-    
-    lapply(untarred_swe_files, gunzip) # unzip swe files list
+  # list just the two SWE files (.dat and .txt) using swe indentifier 1034
+    untarred_swe_files <-list.files(saving_location, pattern = "us_ssmv11034tS.*\\.dat.gz$", full.names =  TRUE) 
+    system.time(lapply(untarred_swe_files, gunzip)) # gunzip swe files list
+  
+  # since the files are unzipped and have extensions .dat, delete all other ones
     to_be_deleted <-list.files(saving_location, pattern = "*.gz|*.txt", full.names =  TRUE) # list all .gz zipped files
     file.remove(to_be_deleted) # delete them bc don't need
+  
+  # list our newly extracted SWE files
+    swe_files <-list.files(saving_location)
     
-    # extract the name of the single day of SWE for header creation
-    last_day <-as.integer(length(list.files(saving_location)))
-    names_list <-list.files(saving_location, pattern = "*.dat")
-    swe_name_raw <-names_list[length(names_list)]
-    swe_name <- substr(names_list[length(names_list)],1,nchar(swe_name_raw)-4)
-    
-    # create envi header to reference binary SWE files
-    header <-c("ENVI",
+    create_headers <-function(swe_file){
+      
+        # extract the name of the single day of SWE for header creation
+            swe_name <- substr(swe_file,1,nchar(swe_file)-4)
+        # create envi header to reference binary SWE files
+            header <-c("ENVI",
                "samples = 6935",
                "lines = 3351",
                "bands = 1",
@@ -84,13 +72,22 @@ for (j in 1:length(month_list)) {
                "data type = 2",
                "interleave = bsq",
                "byte order = 1")
-    writeLines(header, paste0(swe_name,".hdr"))
-  }
+            writeLines(header, paste0(swe_name,".hdr"))
+    }
+    
+  # apply create header funciton to list of SWE files
+    lapply(swe_files, create_headers)
+}
+
+# test with parallelization on list of one year (03)
+#years_path_full <-as.vector(years_path_full[[1]])
+#years <-as.vector(years[[1]])
+
+# apply to years list
+system.time(lapply(years_path_full, extract_daily_swe))
 
 
 
-
-extract_daily_swe(year_list)
 
 
 
@@ -99,8 +96,7 @@ extract_daily_swe(year_list)
 
 #### test to see our automatic header creation works
 read_test <-list.files(saving_location, full.names = TRUE)
-
-snodas_envi <-read.ENVI(read_test[1], read_test[2]) 
+snodas_envi <-read.ENVI(read_test[60], read_test[61]) 
 dim(snodas_envi) # check dims
 snodas <-terra::rast(snodas_envi) # convert to rasters
 values(snodas)[values(snodas) == -9999] = NA # change no data value to NA
