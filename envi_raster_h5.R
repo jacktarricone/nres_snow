@@ -1,5 +1,5 @@
 library(terra)
-library(caTools)
+library(caTools) #read.envi
 library(R.utils)
 library(BiocManager) 
 library(rhdf5)
@@ -16,9 +16,15 @@ library(rhdf5)
 envi_years <-file.path("/Volumes","jack_t","nres_project","reg_years")
 years_path <-list.files(envi_years, full.names = TRUE) # create path to each year
 years <-list.files(envi_years) # just a years list for saving file path purposes
+
+# create list of all the swe files/dates we have. cara will use for wateryear creation
+years_list <-as.list(list.files(years_path)) # just a years list for saving file path purposes
+setwd(file.path("/Volumes","jack_t","nres_project"))
+lapply(years_list, write, "all_swe_files.txt", append=TRUE)
+
   
 # testing
-year <-years[[5]]
+year <-years[[8]]
 
 envi_to_hdf5 <-function(year){
 
@@ -33,7 +39,7 @@ mat_list <- vector(mode = "list", length = length(dat_files))
 
 # loop to read in data matrixes
 system.time(for (i in 1:length(dat_files)){
-  mat_list[[i]] <-read.ENVI(dat_files[i], hdr_files[i]) 
+  mat_list[[i]] <-read.ENVI(dat_files[1i], hdr_files[i]) 
 })
 
 ## define function to crop to western us
@@ -70,7 +76,7 @@ h5createFile(hdf_file_name) # create empty .h5 file
 
 # create data set with proper info, set "chunk"
 # level is compression amount 0 - 9, 9 is most compressed but slowest to read in
-h5createDataset(file = paste0("swe_daily_",year,".h5"), dataset = "swe",
+h5createDataset(file = hdf_file_name, dataset = "swe",
                 dims = c(nlines, nsamps, length(dat_files)), level = 5, chunk = c(nlines, nsamps, length(dat_files)),
                 storage.mode = "double")
 
