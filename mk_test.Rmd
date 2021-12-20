@@ -1,0 +1,313 @@
+---
+title: "NRES 746 Snow-Climate Trends"
+output: html_notebook
+---
+This code runs the mann-kendall test for multiple variables. The goal is to create one slope metric for each climate and snow variable so that we can run a random forest analysis on these data. 
+
+```{r}
+# load necessary libraries
+library(raster)
+library(rgdal)
+library(parallel)
+library(data.table)
+library(gtools)
+library(spatialEco)
+library(EnvStats)
+library(Kendall)
+library(remotes)
+library(snow)
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(rasterVis)
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=12, fig.height=8)
+```
+
+The raster.kendall function will return errors because of the ci.slope input. I've copied the function from github below and specified ci.slope = FALSE. Otherwise, it is the same function as raster.kendall()
+```{r}
+raster_kendall <- function(x, intercept = FALSE, p.value = FALSE, z.value = FALSE,   
+                           confidence = FALSE, tau = FALSE, ...) {
+  if(!any(which(utils::installed.packages()[,1] %in% "EnvStats")))
+    stop("please install EnvStats package before running this function")
+  if(!any(class(x)[1] %in% c("RasterBrick","RasterStack"))) 
+    stop("x is not a raster stack or brick object")
+  if(confidence) {confidence = c(TRUE,TRUE)} else {confidence = c(FALSE,FALSE)}
+    n <- c("intercept", "p.value", "z.value", "LCI", "UCI", "tau")	
+	n <- n[which(c(intercept, p.value, z.value,confidence, tau))]	
+    if( raster::nlayers(x) < 5) stop("Too few layers (n<5) to calculate a trend")
+  trend.slope <- function(y, tau.pass = tau, p.value.pass = p.value,  
+                          confidence.pass = confidence[1], z.value.pass = z.value,
+                          intercept.pass = intercept) {
+    fit <- suppressWarnings( EnvStats::kendallTrendTest(y ~ 1, ci.slope = FALSE) )
+      fit.results <- fit$estimate[2]
+        if(p.value.pass == TRUE) { fit.results <- c(fit.results, fit$p.value) } 
+		  if(z.value.pass == TRUE) { fit.results <- c(fit.results, fit$statistic) } 
+  	        if(confidence.pass == TRUE) { 
+		      ci <- unlist(fit$interval["limits"])
+		        if( length(ci) == 2) { 
+		          fit.results <- c(fit.results, ci)
+                } else {
+                  fit.results <- c(fit.results, c(NA,NA))
+                }			  
+		    }
+        if(intercept.pass == TRUE) { fit.results <- c(fit.results, fit$estimate[3]) }  
+		  if(tau.pass == TRUE) { fit.results <- c(fit.results, fit$estimate[1]) }  
+    return( fit.results )
+  }
+  k <- raster::overlay(x, fun=trend.slope, ...)
+    names(k) <- c("slope", n)
+  return( k )
+}
+```
+
+
+```{r}
+# create raster stacks
+# get filenames and create a raster stack 
+filenames <- list.files("wy_swe_max", full.names = T)
+swe_stack <- stack(filenames)
+# writeRaster(tmin_mam_stack, "tmin_MAM_stack.tif", overwrite = TRUE)
+# get filenames and create a raster stack 
+filenames <- list.files("tmin_MAM", full.names = T)
+tmin_mam_stack <- stack(filenames)
+# writeRaster(tmin_mam_stack, "tmin_MAM_stack.tif", overwrite = TRUE)
+
+filenames <- list.files("tmin_DJF", full.names = T)
+tmin_djf_stack <- stack(filenames)
+# writeRaster(tmin_djf_stack, "tmin_DJF_stack.tif", overwrite = TRUE)
+
+filenames <- list.files("precip_MAM", full.names = T)
+precip_mam_stack <- stack(filenames)
+# writeRaster(precip_mam_stack, "precip_MAM_stack.tif", overwrite = TRUE)
+
+filenames <- list.files("precip_DJF", full.names = T)
+precip_djf_stack <- stack(filenames)
+# writeRaster(precip_djf_stack, "precip_DJF_stack.tif", overwrite = TRUE)
+```
+
+
+This takes a long time, so we parallelized the process. 
+```{r}
+# beginCluster(n=21) # n = number of cores
+# 
+# system.time(tmin_mam_mk <- raster::clusterR(tmin_mam_stack, raster_kendall, args=list(p.value = TRUE)))
+# 
+# endCluster()
+```
+
+```{r}
+# beginCluster(n=21) # n = number of cores
+# system.time(tmin_djf_mk <- raster::clusterR(tmin_djf_stack, raster_kendall, args=list(p.value = TRUE)))
+# endCluster()
+```
+
+
+```{r}
+# beginCluster(n=21) # n = number of cores
+# system.time(precip_mam_mk <- raster::clusterR(precip_mam_stack, raster_kendall, args=list(p.value = TRUE)))
+# endCluster()
+```
+
+
+```{r}
+# beginCluster(n=21) # n = number of cores
+# system.time(precip_djf_mk <- raster::clusterR(precip_djf_stack, raster_kendall, args=list(p.value = TRUE)))
+# endCluster()
+```
+
+
+
+```{r}
+# # write to rasters
+# max_p_value_full <-max_trends_full_test[[2]] # define
+# max_slope_full <-max_trends_full_test[[1]]
+# writeRaster(max_p_value_full,"maxSWE_pval_mk.tif")
+# writeRaster(max_slope_full, "maxSWE_slope_mk.tif")
+
+# # write to rasters
+# max_p_value_full <-tmin_mam_mk[[2]] # define
+# max_slope_full <-tmin_mam_mk[[1]]
+# writeRaster(max_p_value_full,"tmin_mam_pval_mk.tif", overwrite = TRUE)
+# writeRaster(max_slope_full, "tmin_mam_slope_mk.tif", overwrite = TRUE)
+
+
+# # write to rasters
+# max_p_value_full <-tmin_djf_mk[[2]] # define
+# max_slope_full <-tmin_djf_mk[[1]]
+# writeRaster(max_p_value_full,"tmin_djf_pval_mk.tif", overwrite = TRUE)
+# writeRaster(max_slope_full, "tmin_djf_slope_mk.tif", overwrite = TRUE)
+
+
+# # write to rasters
+# max_p_value_full <-precip_mam_mk[[2]] # define
+# max_slope_full <-precip_mam_mk[[1]]
+# writeRaster(max_p_value_full,"precip_mam_pval_mk.tif")
+# writeRaster(max_slope_full, "precip_mam_mk.tif")
+# 
+# 
+# # write to rasters
+# max_p_value_full <-precip_djf_mk[[2]] # define
+# max_slope_full <-precip_djf_mk[[1]]
+# writeRaster(max_p_value_full,"precip_djf_pval_mk.tif")
+# writeRaster(max_slope_full, "precip_djf_slope_mk.tif")
+
+
+# # write to rasters
+# max_p_value_full <-max_trends_full_test[[2]] # define
+# max_slope_full <-max_trends_full_test[[1]]
+# writeRaster(max_p_value_full,"maxSWE_pval_mk.tif")
+# writeRaster(max_slope_full, "maxSWE_slope_mk.tif")
+```
+
+Now we have to factorize the data
+
+```{r}
+# load the rasters
+swe_max_mk_slope <- raster("maxSWE_slope_mk.tif")
+tmin_mam_mk_slope <- raster("tmin_mam_slope_mk.tif")
+tmin_djf_mk_slope <- raster("tmin_djf_slope_mk.tif")
+precip_mam_mk_slope <- raster("precip_mam_slope_mk.tif")
+precip_djf_mk_slope <- raster("precip_djf_slope_mk.tif")
+
+swe_max_mk_pval <- raster("maxSWE_pval_mk.tif")
+tmin_mam_mk_pval <- raster("tmin_mam_pval_mk.tif")
+tmin_djf_mk_pval <- raster("tmin_djf_pval_mk.tif")
+precip_mam_mk_pval <- raster("precip_mam_pval_mk.tif")
+precip_djf_mk_pval <- raster("precip_djf_pval_mk.tif")
+```
+
+
+```{r}
+# save only significan values
+swe_max_slope_sig <- swe_max_mk_slope
+swe_max_slope_sig[swe_max_mk_pval$maxSWE_pval_mk > 0.05] <- NA
+writeRaster(swe_max_slope_sig,"maxSWE_SigSlope_mk.tif", overwrite = T)
+
+# save only significan values
+tmin_mam_slope_sig <- tmin_mam_mk_slope
+tmin_mam_slope_sig[tmin_mam_mk_pval$tmin_mam_pval_mk > 0.05] <- NA
+# writeRaster(tmin_mam_slope_sig,"tmin_mam_SigSlope_mk.tif", overwrite = T)
+
+# save only significan values
+tmin_djf_slope_sig <- tmin_djf_mk_slope
+tmin_djf_slope_sig[tmin_djf_mk_pval$tmin_djf_pval_mk > 0.05] <- NA
+#writeRaster(tmin_djf_slope_sig,"tmin_djf_SigSlope_mk.tif", overwrite = T)
+
+
+# save only significan values
+precip_mam_slope_sig <- precip_mam_mk_slope
+precip_mam_slope_sig[precip_mam_mk_pval$precip_mam_pval_mk > 0.05] <- NA
+#writeRaster(precip_mam_slope_sig,"precip_mam_SigSlope_mk.tif")
+
+# save only significan values
+precip_djf_slope_sig <- precip_djf_mk_slope
+precip_djf_slope_sig[precip_djf_mk_pval$precip_djf_pval_mk > 0.05] <- NA
+#writeRaster(precip_djf_slope_sig,"precip_djf_SigSlope_mk.tif")
+
+```
+```{r}
+# save swe variable as factor
+swe_max_mk_slope_factorized_sig <- swe_max_slope_sig
+swe_max_mk_slope_factorized_sig[swe_max_mk_slope_factorized_sig>0] <- 2
+swe_max_mk_slope_factorized_sig[swe_max_mk_slope_factorized_sig<0] <- 1
+swe_max_mk_slope_factorized_sig[swe_max_mk_slope_factorized_sig == 0] <- 0
+swe_max_mk_slope_factorized_sig <- writeRaster(swe_max_mk_slope_factorized_sig, 'swe_max_mk_SigSlope_factorized.tif', datatype='INT2U', overwrite=TRUE)
+```
+
+
+Plot data and save to raster
+
+```{r}
+# jpeg(
+#     filename="swe_mk.jpeg",
+#     width=12,
+#     height=10,
+#     units="in",
+#     res=500)
+p1 <- levelplot(swe_max_mk_slope[[1]], names.attr="Slope", par.settings=RdBuTheme(),main="SWE Mann-Kendall Slope", at=seq(-0.02, 0.02, length.out=10))
+p2 <- levelplot(swe_max_mk_pval[[1]], names.attr="Pvalue", par.settings=RdBuTheme(),main="SWE Mann-Kendall P-Value")
+grid.arrange(p1, p2, ncol=2)
+#dev.off()
+```
+
+
+
+```{r}
+swe_mk_df <- as.data.frame(swe_max_mk_slope, xy=TRUE)
+```
+
+
+```{r}
+cellStats(swe_max_mk_slope, stat = "sd", na.rm = TRUE)
+```
+
+
+
+```{r}
+sig_p <- swe_max_mk_pval
+sig_p[sig_p > 0.05] <- NA
+sig_p[sig_p <= 0.5] <- 1
+
+jpeg(filename="swe_change.jpg", width=10, height=8, units="in", res=500)
+par(mfrow=c(1,2))
+my.palette1 <- brewer.pal(n = 11, name = "RdBu")
+p1 <- plot(swe_max_mk_slope, col = my.palette1, zlim = c(-0.02,0.02), main = "Change in Max SWE (cm/year)")
+my.palette2 <- brewer.pal(n = 9, name = "Greys")
+p2 <- plot(sig_p, col = my.palette2, main = "P-Values < 0.05 Max SWE")
+dev.off()
+```
+
+
+```{r}
+# specify only significant values
+sig_p <- tmin_mam_mk_pval
+sig_p[sig_p > 0.05] <- NA
+sig_p[sig_p <= 0.5] <- 1
+
+jpeg(filename="tmin_change.jpg", width=10, height=8, units="in", res=500)
+par(mfrow=c(1,2), mar = c(5, 4, 4, 5) + 0.1)
+my.palette1 <- brewer.pal(n = 11, name = "BuRd")
+p1 <- plot(tmin_mam_mk_slope, col = my.palette1, main = "Change in Tmin MAM (mm/year)")
+my.palette2 <- brewer.pal(n = 11, name = "RdBu")
+p2 <- plot(tmin_djf_mk_slope, col = my.palette1, main = "Change in Tmin DJF (mm/year)")
+dev.off()
+```
+
+
+
+
+```{r}
+sig_p <- precip_djf_mk_pval
+sig_p[sig_p > 0.05] <- NA
+sig_p[sig_p <= 0.5] <- 1
+
+jpeg(filename="precip_djf_change.jpg", width=10, height=8, units="in", res=500)
+par(mfrow=c(1,2))
+my.palette1 <- brewer.pal(n = 11, name = "RdBu")
+p1 <- plot(precip_djf_mk_slope, col = my.palette1, zlim = c(-20,20), main = "Change in Precip DJF (mm/year)")
+my.palette2 <- brewer.pal(n = 9, name = "Greys")
+p2 <- plot(sig_p, col = my.palette2, main = "P-Values < 0.05 Precip DJF")
+dev.off()
+```
+
+
+
+```{r}
+sig_p <- precip_mam_mk_pval
+sig_p[sig_p > 0.05] <- NA
+sig_p[sig_p <= 0.5] <- 1
+
+jpeg(filename="precip_change.jpg", width=10, height=8, units="in", res=500)
+par(mfrow=c(1,2))
+my.palette1 <- brewer.pal(n = 11, name = "RdBu")
+p1 <- plot(precip_mam_mk_slope, col = my.palette1, zlim = c(-10,10), main = "Change in Precip MAM (mm/year)")
+my.palette1 <- brewer.pal(n = 11, name = "RdBu")
+p1 <- plot(precip_djf_mk_slope, col = my.palette1, zlim = c(-20,20), main = "Change in Precip DJF (mm/year)")
+dev.off()
+```
+
